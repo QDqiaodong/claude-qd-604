@@ -63,4 +63,18 @@ export const workOrderApi = {
   close: (id) => http.post(`/work-orders/${id}/close`)
 }
 
+export const evacuationApi = {
+  list: (params) => http.get('/evacuations', { params }),
+  detail: (id) => http.get(`/evacuations/${id}`),
+  receivers: (sourceStationId) => http.get('/evacuations/receivers', { params: { sourceStationId } }),
+  preview: (data) => http.post('/evacuations/preview', data),
+  create: (data) => http.post('/evacuations', data),
+  execute: (id) => http.post(`/evacuations/${id}/execute`),
+  cancel: (id) => http.post(`/evacuations/${id}/cancel`),
+  adjustItem: (id, itemId, planStationId, planPileId) =>
+    http.post(`/evacuations/${id}/items/adjust`, { itemId, planStationId, planPileId }),
+  addTargets: (id, targetStationIds) =>
+    http.post(`/evacuations/${id}/targets`, { targetStationIds })
+}
+
 export default http

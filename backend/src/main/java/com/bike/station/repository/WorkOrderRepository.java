@@ -24,6 +24,12 @@ public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long> {
 
     long countByBikeIdAndStatusIn(Long bikeId, Collection<String> statuses);
 
+    /** 一批车辆里仍挂着未关闭工单（REPORTED/ASSIGNED/FIXED）的车辆数（清站判定用） */
+    long countByBikeIdInAndStatusIn(Collection<Long> bikeIds, Collection<String> statuses);
+
+    /** 某维修工名下未完工工单数量（清站判定维修工有没有工单冲突用） */
+    long countByWorkerIdAndStatusIn(Long workerId, Collection<String> statuses);
+
     long countByStatus(String status);
 
     /**

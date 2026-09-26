@@ -54,4 +54,11 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select b from Bike b where b.pileId = :pileId")
     Optional<Bike> findByPileIdForUpdate(@Param("pileId") Long pileId);
+
+    /**
+     * 【悲观锁】按一批桩位锁住停在上面的车（清站执行时逐车迁移用）。
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select b from Bike b where b.pileId in :pileIds")
+    List<Bike> findByPileIdInForUpdate(@Param("pileIds") List<Long> pileIds);
 }

@@ -16,11 +16,15 @@ import org.springframework.transaction.annotation.Transactional;
 import com.bike.station.common.BizException;
 import com.bike.station.domain.Bike;
 import com.bike.station.domain.BikeDict;
+import com.bike.station.domain.EvacuationItem;
+import com.bike.station.domain.EvacuationOrder;
 import com.bike.station.domain.Pile;
 import com.bike.station.domain.Station;
 import com.bike.station.dto.StationDtos;
 import com.bike.station.dto.Views;
 import com.bike.station.repository.BikeRepository;
+import com.bike.station.repository.EvacuationItemRepository;
+import com.bike.station.repository.EvacuationOrderRepository;
 import com.bike.station.repository.PileRepository;
 import com.bike.station.repository.StationRepository;
 
@@ -40,15 +44,21 @@ public class StationService {
     private final StationRepository stationRepository;
     private final PileRepository pileRepository;
     private final BikeRepository bikeRepository;
+    private final EvacuationOrderRepository evacuationOrderRepository;
+    private final EvacuationItemRepository evacuationItemRepository;
     private final SlotService slotService;
 
     public StationService(StationRepository stationRepository,
                           PileRepository pileRepository,
                           BikeRepository bikeRepository,
+                          EvacuationOrderRepository evacuationOrderRepository,
+                          EvacuationItemRepository evacuationItemRepository,
                           SlotService slotService) {
         this.stationRepository = stationRepository;
         this.pileRepository = pileRepository;
         this.bikeRepository = bikeRepository;
+        this.evacuationOrderRepository = evacuationOrderRepository;
+        this.evacuationItemRepository = evacuationItemRepository;
         this.slotService = slotService;
     }
 
@@ -85,6 +95,17 @@ public class StationService {
         Map<Long, List<Pile>> pilesByStation = pileRepository.findAll().stream()
                 .collect(Collectors.groupingBy(Pile::getStationId));
 
+        // 清站看板信息：每个源站当前活单（正在清站 / 部分受阻）与最近一张完成单
+        Map<Long, EvacuationOrder> activeEvac = new HashMap<>();
+        Map<Long, EvacuationOrder> lastDoneEvac = new HashMap<>();
+        for (EvacuationOrder e : evacuationOrderRepository.findAllByOrderByCreatedAtDesc()) {
+            if (BikeDict.isEvacActive(e.getStatus())) {
+                activeEvac.putIfAbsent(e.getSourceStationId(), e);
+            } else if (BikeDict.EVAC_DONE.equals(e.getStatus())) {
+                lastDoneEvac.putIfAbsent(e.getSourceStationId(), e);
+            }
+        }
+
         List<Views.StationCard> cards = new ArrayList<>(stations.size());
         for (Station s : stations) {
             List<Pile> piles = pilesByStation.getOrDefault(s.getId(), List.of()).stream()
@@ -106,6 +127,21 @@ public class StationService {
                         b == null ? null : b.getCode(),
                         b == null ? null : b.getModel()));
             }
+
+            EvacuationOrder active = activeEvac.get(s.getId());
+            EvacuationOrder done = active == null ? lastDoneEvac.get(s.getId()) : null;
+            EvacuationOrder badge = active != null ? active : done;
+            long evacTotal = 0;
+            long evacMoved = 0;
+            long evacBlocked = 0;
+            if (badge != null) {
+                List<EvacuationItem> eis = evacuationItemRepository
+                        .findByEvacuationIdOrderByIdAsc(badge.getId());
+                evacTotal = eis.size();
+                evacMoved = eis.stream().filter(i -> BikeDict.ITEM_MOVED.equals(i.getItemStatus())).count();
+                evacBlocked = eis.stream().filter(i -> BikeDict.ITEM_BLOCKED.equals(i.getItemStatus())).count();
+            }
+
             cards.add(new Views.StationCard(
                     s.getId(),
                     s.getCode(),
@@ -116,7 +152,15 @@ public class StationService {
                     BikeDict.stationStatusName(s.getStatus()),
                     bikeCountByStation.getOrDefault(s.getId(), 0L),
                     free,
-                    pileViews));
+                    pileViews,
+                    badge == null ? null : badge.getStatus(),
+                    badge == null ? null : BikeDict.evacStatusName(badge.getStatus()),
+                    active == null ? null : active.getOrderNo(),
+                    evacTotal,
+                    evacMoved,
+                    evacBlocked,
+                    done == null ? null : done.getOrderNo(),
+                    done != null));
         }
         return cards;
     }
@@ -197,6 +241,18 @@ public class StationService {
         if (status.equals(station.getStatus())) {
             throw new BizException("变更站点状态失败：站点「" + station.getName() + "」已经是「"
                     + BikeDict.stationStatusName(status) + "」状态");
+        }
+        if (BikeDict.STATION_CLOSED.equals(status)) {
+            // 不能用「直接停用」绕开应急清站：有未完结清站单或站内仍有车（含维修区）时一律拦
+            if (evacuationOrderRepository.findActiveBySourceStationId(stationId).isPresent()) {
+                throw new BizException("停用站点失败：站点「" + station.getName()
+                        + "」有一张正在执行的清站单，请在清站单完成后由系统自动停用，或先撤销清站单");
+            }
+            long used = bikeRepository.countByStationId(station.getId());
+            if (used > 0) {
+                throw new BizException("停用站点失败：站点「" + station.getName() + "」仍有 " + used
+                        + " 辆车，请先发起「应急清站」把车辆迁出后再停用");
+            }
         }
         station.setStatus(status);
         return cardOf(station.getId());

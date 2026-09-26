@@ -45,6 +45,19 @@
           </el-tag>
         </header>
 
+        <!-- 清站看板：正在清站 / 受阻数量 / 完成结果 -->
+        <div v-if="st.evacStatus" class="evac-banner" :class="'evac-banner--' + st.evacStatus.toLowerCase()">
+          <template v-if="st.evacStatus === 'DONE'">
+            ✅ 已由清站单 {{ st.lastEvacOrderNo }} 清空并停用
+          </template>
+          <template v-else>
+            <span class="evac-title">🚚 {{ st.evacStatusName }} {{ st.evacOrderNo }}</span>
+            <span class="evac-prog">已迁 {{ st.evacMoved }}/{{ st.evacTotal }}</span>
+            <el-tag v-if="st.evacBlocked > 0" size="small" type="danger" effect="dark">受阻 {{ st.evacBlocked }}</el-tag>
+            <el-button link type="primary" size="small" @click.stop="goEvac(st)">查看清站单</el-button>
+          </template>
+        </div>
+
         <div class="st-meta">
           <span>{{ st.district }}</span>
           <span class="st-cap">
@@ -151,9 +164,11 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { stationApi } from '../api'
+import { stationApi, evacuationApi } from '../api'
+import { useRouter } from 'vue-router'
 
 const route = useRoute()
+const navRouter = useRouter()
 const loading = ref(false)
 const keyword = ref('')
 const stations = ref([])
@@ -340,12 +355,24 @@ async function changeCapacity(st) {
   await load()
 }
 
+async function goEvac(st) {
+  try {
+    const list = await evacuationApi.list()
+    const hit = list.find((o) => o.orderNo === st.evacOrderNo)
+    if (hit) {
+      navRouter.push({ path: '/evacuations', query: { code: hit.orderNo } })
+    }
+  } catch (e) {
+    /* ignore */
+  }
+}
+
 async function toggleStatus(st) {
   const target = st.status === 'OPEN' ? 'CLOSED' : 'OPEN'
   if (target === 'CLOSED') {
     try {
       await ElMessageBox.confirm(
-        `停用「${st.name}」后，这个站点不能借车、不能还车、也不能调拨进来（站内已停的车不受影响）。`,
+        `停用「${st.name}」后，这个站点不能借车、不能还车、也不能调拨进来（站内已停的车不受影响）。若站内还有车，请改用「应急清站」流程。`,
         '停用站点',
         { type: 'warning' }
       )
@@ -525,6 +552,32 @@ onMounted(load)
   color: #8b9a7c;
   margin-top: 8px;
 }
+
+.evac-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 9px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.evac-banner--pending,
+.evac-banner--running {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary-dark-2);
+}
+.evac-banner--partial {
+  background: #fdf3e3;
+  color: #b56a1f;
+}
+.evac-banner--done {
+  background: #eef7ea;
+  color: #4b7a36;
+}
+.evac-title { font-weight: 700; }
+.evac-prog { opacity: .85; }
 
 .st-cap em {
   font-style: normal;

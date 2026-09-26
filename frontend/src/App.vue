@@ -29,7 +29,7 @@
         <el-input
           v-model="keyword"
           class="finder-input"
-          placeholder="输入编号直查：BK-1001 / S001 / R2026… / WO2026…"
+          placeholder="输入编号直查：BK-1001 / S001 / R2026… / WO2026… / CL2026…"
           clearable
           @keyup.enter="doSearch"
         >
@@ -127,9 +127,11 @@ function doSearch() {
     target = '/work-orders'
   } else if (/^R\d+$/.test(upper)) {
     target = '/rentals'
+  } else if (/^CL\d+$/.test(upper)) {
+    target = '/evacuations'
   }
   if (!target) {
-    ElMessage.warning('认不出这个编号，请用 BK-1001（车辆）/ S001（站点）/ R…（订单）/ WO…（工单）的形式')
+    ElMessage.warning('认不出这个编号，请用 BK-1001（车辆）/ S001（站点）/ R…（订单）/ WO…（工单）/ CL…（清站单）的形式')
     return
   }
   nav.push({ path: target, query: { code: upper } })

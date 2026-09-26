@@ -70,6 +70,10 @@ public final class BikeDict {
     public static final List<String> ORDER_OPEN_STATUS = List.of(
             ORDER_REPORTED, ORDER_ASSIGNED);
 
+    /** 尚未关闭的工单状态（清站完成判定：源站车辆不能还挂着这种工单） */
+    public static final List<String> ORDER_UNCLOSED_STATUS = List.of(
+            ORDER_REPORTED, ORDER_ASSIGNED, ORDER_FIXED);
+
     private static final Map<String, String> FAULT_LEVEL_NAME = Map.of(
             "LOW", "低",
             "MID", "中",
@@ -100,6 +104,41 @@ public final class BikeDict {
     private static final Map<String, String> WORKER_STATUS_NAME = Map.of(
             "ON_DUTY", "在岗",
             "OFF_DUTY", "休息");
+
+    // ------------------------------------------------------------------
+    // 应急清站状态机
+    // ------------------------------------------------------------------
+    /** 清站单：待执行（一辆车都没迁出，可撤销、可改方案） */
+    public static final String EVAC_PENDING = "PENDING";
+    /** 清站单：执行中（已开始迁车，还没跑完最近一轮判定） */
+    public static final String EVAC_RUNNING = "RUNNING";
+    /** 清站单：部分受阻（仍有车辆留单，已迁出的结果保留，可继续执行） */
+    public static final String EVAC_PARTIAL = "PARTIAL";
+    /** 清站单：已完成（车辆全部迁出且源站已停用，终态） */
+    public static final String EVAC_DONE = "DONE";
+    /** 清站单：已撤销（只允许在未迁出任何车辆时撤销，终态） */
+    public static final String EVAC_CANCELLED = "CANCELLED";
+
+    private static final Map<String, String> EVAC_STATUS_NAME = Map.of(
+            "PENDING", "待执行",
+            "RUNNING", "执行中",
+            "PARTIAL", "部分受阻",
+            "DONE", "已完成",
+            "CANCELLED", "已撤销");
+
+    /** 还没走完、仍占着「同源站唯一活单」名额的清站单状态 */
+    public static final List<String> EVAC_ACTIVE_STATUS = List.of(
+            EVAC_PENDING, EVAC_RUNNING, EVAC_PARTIAL);
+
+    /** 清站车辆明细：已计划 / 已迁出 / 受阻 */
+    public static final String ITEM_PLANNED = "PLANNED";
+    public static final String ITEM_MOVED = "MOVED";
+    public static final String ITEM_BLOCKED = "BLOCKED";
+
+    private static final Map<String, String> ITEM_STATUS_NAME = Map.of(
+            "PLANNED", "已计划",
+            "MOVED", "已迁出",
+            "BLOCKED", "受阻");
 
     // ------------------------------------------------------------------
     // 骑行人账号状态
@@ -203,6 +242,26 @@ public final class BikeDict {
 
     public static String workerStatusName(String status) {
         return status == null ? "" : WORKER_STATUS_NAME.getOrDefault(status, status);
+    }
+
+    public static boolean isValidEvacStatus(String status) {
+        return status != null && EVAC_STATUS_NAME.containsKey(status);
+    }
+
+    public static String evacStatusName(String status) {
+        return status == null ? "" : EVAC_STATUS_NAME.getOrDefault(status, status);
+    }
+
+    public static boolean isEvacActive(String status) {
+        return status != null && EVAC_ACTIVE_STATUS.contains(status);
+    }
+
+    public static boolean isValidItemStatus(String status) {
+        return status != null && ITEM_STATUS_NAME.containsKey(status);
+    }
+
+    public static String itemStatusName(String status) {
+        return status == null ? "" : ITEM_STATUS_NAME.getOrDefault(status, status);
     }
 
     /**

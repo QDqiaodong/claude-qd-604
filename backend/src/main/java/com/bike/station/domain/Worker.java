@@ -34,6 +34,9 @@ public class Worker {
     @Column(name = "status", nullable = false, length = 16)
     private String status;
 
+    @Column(name = "station_id")
+    private Long stationId;
+
     public Long getId() {
         return id;
     }
@@ -72,5 +75,13 @@ public class Worker {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public Long getStationId() {
+        return stationId;
+    }
+
+    public void setStationId(Long stationId) {
+        this.stationId = stationId;
     }
 }
