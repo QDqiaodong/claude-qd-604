@@ -30,6 +30,9 @@ public interface RentalRepository extends JpaRepository<Rental, Long> {
     /** 该车的在途单（非加锁版本，只用于页面展示） */
     Optional<Rental> findFirstByBikeIdAndStatus(Long bikeId, String status);
 
+    /** 从某站点借出、至今未还（在途）的租借单数 —— 清站完成闸门用 */
+    long countByStartStationIdAndStatus(Long startStationId, String status);
+
     /**
      * 【悲观锁】按主键锁 rental 表的这一行（SELECT ... FOR UPDATE）。
      *

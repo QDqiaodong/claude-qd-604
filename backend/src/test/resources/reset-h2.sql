@@ -1,0 +1,105 @@
+-- 每个测试方法前重置全部业务表（按依赖顺序），让并发测试也拿到干净数据
+DELETE FROM clearance_item;
+DELETE FROM clearance_receiver;
+DELETE FROM clearance_order;
+DELETE FROM work_order;
+DELETE FROM rental;
+DELETE FROM bike;
+DELETE FROM pile;
+DELETE FROM station;
+DELETE FROM worker;
+DELETE FROM bike_user;
+ALTER TABLE bike_user ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE station ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE pile ALTER COLUMN id RESTART WITH 100;
+ALTER TABLE bike ALTER COLUMN id RESTART WITH 1000;
+ALTER TABLE rental ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE worker ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE work_order ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE clearance_order ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE clearance_receiver ALTER COLUMN id RESTART WITH 1;
+ALTER TABLE clearance_item ALTER COLUMN id RESTART WITH 1;
+
+INSERT INTO bike_user (id, phone, nickname, balance, status, created_at) VALUES
+(1, '13800000001', '阿明', 30.00, 'NORMAL', '2026-08-01 09:00:00'),
+(2, '13800000002', '阿红',  0.50, 'NORMAL', '2026-08-02 10:00:00'),
+(3, '13800000003', '阿刚', 88.00, 'NORMAL', '2026-08-03 11:00:00');
+
+INSERT INTO station (id, code, name, district, capacity, status, longitude, latitude, created_at) VALUES
+(1, 'S001', '中关村驿站', '海淀区', 6, 'OPEN', 116.316000, 39.983000, '2026-07-01 08:00:00'),
+(2, 'S002', '五道口驿站', '海淀区', 4, 'OPEN', 116.337000, 39.992000, '2026-07-01 08:00:00'),
+(3, 'S003', '西二旗驿站', '昌平区', 5, 'OPEN', 116.308000, 40.056000, '2026-07-01 08:00:00'),
+(4, 'S004', '国贸驿站',   '朝阳区', 3, 'CLOSED', 116.461000, 39.908000, '2026-07-01 08:00:00'),
+(5, 'S005', '望京驿站',   '朝阳区', 2, 'OPEN', 116.470000, 39.996000, '2026-07-01 08:00:00'),
+(6, 'S006', '学院路驿站', '海淀区', 1, 'OPEN', 116.320000, 39.985000, '2026-07-01 08:00:00'),
+(7, 'S007', '知春路驿站', '海淀区', 6, 'OPEN', 116.325000, 39.984000, '2026-07-01 08:00:00');
+
+INSERT INTO pile (id, station_id, pile_no, status, created_at) VALUES
+(101, 1, 'P1', 'OCCUPIED', '2026-07-01 08:00:00'),
+(102, 1, 'P2', 'OCCUPIED', '2026-07-01 08:00:00'),
+(103, 1, 'P3', 'OCCUPIED', '2026-07-01 08:00:00'),
+(104, 1, 'P4', 'IDLE',     '2026-07-01 08:00:00'),
+(105, 1, 'P5', 'IDLE',     '2026-07-01 08:00:00'),
+(106, 1, 'P6', 'DISABLED', '2026-07-01 08:00:00'),
+(123, 1, 'P7', 'OCCUPIED', '2026-07-01 08:00:00'),
+(107, 2, 'P1', 'OCCUPIED', '2026-07-01 08:00:00'),
+(108, 2, 'P2', 'OCCUPIED', '2026-07-01 08:00:00'),
+(109, 2, 'P3', 'IDLE',     '2026-07-01 08:00:00'),
+(110, 2, 'P4', 'IDLE',     '2026-07-01 08:00:00'),
+(111, 3, 'P1', 'OCCUPIED', '2026-07-01 08:00:00'),
+(112, 3, 'P2', 'IDLE',     '2026-07-01 08:00:00'),
+(113, 3, 'P3', 'IDLE',     '2026-07-01 08:00:00'),
+(114, 3, 'P4', 'IDLE',     '2026-07-01 08:00:00'),
+(115, 3, 'P5', 'IDLE',     '2026-07-01 08:00:00'),
+(116, 4, 'P1', 'OCCUPIED', '2026-07-01 08:00:00'),
+(117, 4, 'P2', 'IDLE',     '2026-07-01 08:00:00'),
+(118, 4, 'P3', 'IDLE',     '2026-07-01 08:00:00'),
+(119, 5, 'P1', 'OCCUPIED', '2026-07-01 08:00:00'),
+(120, 5, 'P2', 'OCCUPIED', '2026-07-01 08:00:00'),
+(121, 5, 'P3', 'IDLE',     '2026-07-01 08:00:00'),
+(122, 5, 'P4', 'IDLE',     '2026-07-01 08:00:00'),
+(124, 6, 'P1', 'IDLE',     '2026-07-01 08:00:00');
+
+INSERT INTO bike (id, code, model, status, station_id, pile_id, total_rides, scrap_reason, created_at, updated_at) VALUES
+(1001, 'BK-1001', '青桔经典款',  'PILE',     1, 101,  42, NULL, '2026-06-01 08:00:00', '2026-09-20 18:00:00'),
+(1002, 'BK-1002', '青桔经典款',  'PILE',     1, 102,  37, NULL, '2026-06-01 08:00:00', '2026-09-20 18:00:00'),
+(1003, 'BK-1003', '青桔轻骑款',  'PILE',     1, 103,  55, NULL, '2026-06-01 08:00:00', '2026-09-20 18:00:00'),
+(1004, 'BK-1004', '哈啰电助力',  'PILE',     2, 107,  88, NULL, '2026-06-02 08:00:00', '2026-09-20 18:00:00'),
+(1005, 'BK-1005', '哈啰电助力',  'PILE',     2, 108,  61, NULL, '2026-06-02 08:00:00', '2026-09-20 18:00:00'),
+(1006, 'BK-1006', '美团小黄车',  'PILE',     3, 111,  73, NULL, '2026-06-03 08:00:00', '2026-09-20 18:00:00'),
+(1007, 'BK-1007', '美团小黄车',  'PILE',     4, 116,  19, NULL, '2026-06-03 08:00:00', '2026-09-20 18:00:00'),
+(1008, 'BK-1008', '摩拜经典款',  'PILE',     5, 119,  26, NULL, '2026-06-04 08:00:00', '2026-09-20 18:00:00'),
+(1009, 'BK-1009', '摩拜经典款',  'PILE',     5, 120,  31, NULL, '2026-06-04 08:00:00', '2026-09-20 18:00:00'),
+(1010, 'BK-1010', '青桔轻骑款',  'PILE',     1, 123,   8, NULL, '2026-06-07 08:00:00', '2026-09-22 09:30:00'),
+(2001, 'BK-2001', '青桔经典款',  'RIDING',   NULL, NULL, 64, NULL, '2026-06-05 08:00:00', '2026-09-21 19:00:00'),
+(2002, 'BK-2002', '哈啰电助力',  'RIDING',   NULL, NULL, 47, NULL, '2026-06-05 08:00:00', '2026-09-21 20:30:00'),
+(3001, 'BK-3001', '美团小黄车',  'REPAIR',   3, NULL,  58, NULL, '2026-06-06 08:00:00', '2026-09-18 15:10:00'),
+(4001, 'BK-4001', '摩拜经典款',  'SCRAPPED', NULL, NULL, 132, '车架断裂，判定报废', '2026-05-20 08:00:00', '2026-08-15 10:00:00');
+
+INSERT INTO rental (id, order_no, user_id, bike_id, start_station_id, start_pile_id,
+                    end_station_id, end_pile_id, start_time, end_time,
+                    duration_minutes, amount, status, created_at) VALUES
+(1, 'R20260901001', 1, 1002, 1, 102, 2, 109, '2026-09-01 08:10:00', '2026-09-01 08:35:00',  25,  1.50, 'SETTLED', '2026-09-01 08:10:00'),
+(2, 'R20260901002', 1, 1003, 1, 103, 3, 112, '2026-09-01 09:00:00', '2026-09-01 10:35:00',  95,  3.50, 'SETTLED', '2026-09-01 09:00:00'),
+(3, 'R20260901003', 3, 1004, 2, 107, 1, 104, '2026-09-10 18:00:00', '2026-09-10 21:20:00', 200,  6.50, 'SETTLED', '2026-09-10 18:00:00'),
+(4, 'R20260901004', 3, 1006, 3, 111, 2, 110, '2026-09-15 07:00:00', '2026-09-15 18:40:00', 700, 20.00, 'SETTLED', '2026-09-15 07:00:00'),
+(5, 'R20260901005', 1, 2001, 3, 112, NULL, NULL, '2026-09-21 19:00:00', NULL, NULL, NULL, 'RIDING', '2026-09-21 19:00:00'),
+(6, 'R20260901006', 3, 2002, 1, 105, NULL, NULL, '2026-09-21 20:30:00', NULL, NULL, NULL, 'RIDING', '2026-09-21 20:30:00');
+
+INSERT INTO worker (id, name, phone, skill, status, station_id) VALUES
+(1, '张师傅', '13800001001', '车锁与传动', 'ON_DUTY',  1),
+(2, '李师傅', '13800001002', '电控与电池', 'ON_DUTY',  3),
+(3, '王师傅', '13800001003', '轮胎与刹车', 'OFF_DUTY', 2);
+
+INSERT INTO work_order (id, order_no, bike_id, fault_type, level, status, worker_id,
+                        plan_start, plan_end, report_time, assign_time, fix_time, fix_note) VALUES
+(1, 'WO20260901001', 2001, '智能锁无法上锁', 'HIGH', 'ASSIGNED', 1,
+    '2026-09-22 09:00:00', '2026-09-22 11:00:00', '2026-09-21 19:20:00', '2026-09-21 19:40:00', NULL, NULL),
+(2, 'WO20260901002', 2002, '后刹车异响',     'MID',  'REPORTED', NULL,
+    NULL, NULL, '2026-09-21 20:45:00', NULL, NULL, NULL),
+(3, 'WO20260901003', 3001, '车架焊点开裂',   'HIGH', 'FIXED',    2,
+    '2026-09-18 14:00:00', '2026-09-18 15:30:00', '2026-09-17 09:00:00', '2026-09-17 10:00:00', '2026-09-18 15:10:00', '补焊并做防锈处理'),
+(4, 'WO20260901004', 1009, '脚踏板松动',     'LOW',  'CLOSED',   1,
+    '2026-09-05 09:00:00', '2026-09-05 10:00:00', '2026-09-04 16:00:00', '2026-09-04 16:30:00', '2026-09-05 09:50:00', '紧固并更换销钉'),
+(5, 'WO20260922005', 1010, '车把转向卡滞',   'MID',  'REPORTED', NULL,
+    NULL, NULL, '2026-09-22 09:30:00', NULL, NULL, NULL);

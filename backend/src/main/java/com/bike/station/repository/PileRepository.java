@@ -32,4 +32,14 @@ public interface PileRepository extends JpaRepository<Pile, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Pile p where p.id = :id")
     Optional<Pile> findByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * 【悲观锁】按桩位号顺序锁住某站点下的全部桩位行。
+     *
+     * 清站执行分配落点时使用：站点行锁保证「容量」，桩位行锁保证「挑空桩」
+     * 与「占位」之间不会被并发还车/调拨插队（顺序加锁也避免互锁）。
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Pile p where p.stationId = :stationId order by p.id asc")
+    List<Pile> findByStationIdForUpdate(@Param("stationId") Long stationId);
 }

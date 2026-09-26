@@ -6,12 +6,16 @@
 --           /docker-entrypoint-initdb.d/01-schema.sql）。
 --           后端 spring.jpa.hibernate.ddl-auto=none，表结构以本文件为准。
 --
--- 种子数据的口径：4 个业务模块里的【每一条】业务规则，都能在下面这份数据上
+-- 种子数据的口径：5 个业务模块里的【每一条】业务规则，都能在下面这份数据上
 -- 被真的触发一次（可行分支 + 拒绝分支都留了样本），改规则时不用另造数据。
 -- ============================================================================
 
 SET NAMES utf8mb4;
 
+-- 清站模块的两张表先于业务表删除（子表先删，避免悬空引用）
+DROP TABLE IF EXISTS clearance_item;
+DROP TABLE IF EXISTS clearance_receiver;
+DROP TABLE IF EXISTS clearance_order;
 DROP TABLE IF EXISTS work_order;
 DROP TABLE IF EXISTS rental;
 DROP TABLE IF EXISTS bike;
@@ -124,15 +128,20 @@ CREATE TABLE rental (
 
 -- ---------------------------------------------------------------------------
 -- 维修工
+--   station_id 是「驻站」：应急清站时只有「在岗（ON_DUTY）且名下没有
+--   未完成工单（REPORTED / ASSIGNED）」的驻站维修工，才让他所在的站点
+--   具备接收故障车的能力。允许为 NULL（无固定驻站，不参与清站接收）。
 -- ---------------------------------------------------------------------------
 CREATE TABLE worker (
-    id     BIGINT      NOT NULL AUTO_INCREMENT,
-    name   VARCHAR(32) NOT NULL COMMENT '姓名',
-    phone  VARCHAR(20) NOT NULL COMMENT '手机号，唯一',
-    skill  VARCHAR(32) NOT NULL COMMENT '技能方向',
-    status VARCHAR(16) NOT NULL COMMENT 'ON_DUTY 在岗 / OFF_DUTY 休息',
+    id         BIGINT      NOT NULL AUTO_INCREMENT,
+    name       VARCHAR(32) NOT NULL COMMENT '姓名',
+    phone      VARCHAR(20) NOT NULL COMMENT '手机号，唯一',
+    skill      VARCHAR(32) NOT NULL COMMENT '技能方向',
+    status     VARCHAR(16) NOT NULL COMMENT 'ON_DUTY 在岗 / OFF_DUTY 休息',
+    station_id BIGINT      NULL COMMENT '驻站站点；应急清站判定故障车接收能力用',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_worker_phone (phone)
+    UNIQUE KEY uk_worker_phone (phone),
+    KEY idx_worker_station (station_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '维修工';
 
 -- ---------------------------------------------------------------------------
@@ -161,6 +170,85 @@ CREATE TABLE work_order (
     KEY idx_order_status (status)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '运维工单';
 
+-- ---------------------------------------------------------------------------
+-- 应急清站单（模块五）
+--   状态机：PENDING 待执行 → RUNNING 执行中 → COMPLETED 已完成 /
+--           PARTIALLY_BLOCKED 部分受阻（可反复执行，最后一次执行会原地推进）；
+--           PENDING → CANCELLED 已撤销（只允许在尚未迁出任何车辆时撤销）。
+--   真正停用源站只在 COMPLETED 那一刻发生；受阻单绝不把源站标成已清空。
+--   executing_token / executing_at 是「幂等执行」的串行化锚点：
+--   重复点击、刷新重提、双人同时点执行，只有一个请求真正在跑，
+--   另一个请求拿到的是最新进度；每辆车最多成功迁出一次。
+-- ---------------------------------------------------------------------------
+CREATE TABLE clearance_order (
+    id                  BIGINT       NOT NULL AUTO_INCREMENT,
+    order_no            VARCHAR(32)  NOT NULL COMMENT '清站单号，唯一，形如 CS2026...',
+    source_station_id   BIGINT       NOT NULL COMMENT '要停用/清空的源站',
+    status              VARCHAR(24)  NOT NULL COMMENT 'PENDING 待执行 / RUNNING 执行中 / PARTIALLY_BLOCKED 部分受阻 / COMPLETED 已完成 / CANCELLED 已撤销',
+    total_count         INT          NOT NULL COMMENT '建单时源站待迁车辆总数（含暂时无处可去的车）',
+    planned_count       INT          NOT NULL COMMENT '已有计划去向的车辆数',
+    migrated_count      INT          NOT NULL COMMENT '已成功迁出的车辆数',
+    blocked_count       INT          NOT NULL COMMENT '受阻/无处安置的车辆数',
+    plan_remark         VARCHAR(255) NULL COMMENT '方案生成说明（为什么有车没地方去）',
+    executing_token     VARCHAR(64)  NULL COMMENT '当前执行令牌：同单并发执行时只有一个请求拿得到',
+    executing_at        DATETIME     NULL COMMENT '本次执行开始时间（卡死兜底可识别）',
+    last_execute_time   DATETIME     NULL COMMENT '最近一次执行时间',
+    last_execute_result VARCHAR(255) NULL COMMENT '最近一次执行的结果说明',
+    cancelled_time      DATETIME     NULL COMMENT '撤销时间',
+    completed_time      DATETIME     NULL COMMENT '完成（源站真正停用）时间',
+    created_at          DATETIME     NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_clearance_order_no (order_no),
+    KEY idx_clearance_source (source_station_id),
+    KEY idx_clearance_status (status)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '应急清站单';
+
+-- ---------------------------------------------------------------------------
+-- 清站单接收站
+--   一张单选一个或多个接收站，seq 记录选择顺序；
+--   方案生成时按「故障车 → 具备在岗维修工且无工单冲突的接收站、
+--   普通车 → 就近」的原则在这些站里分配。
+-- ---------------------------------------------------------------------------
+CREATE TABLE clearance_receiver (
+    id           BIGINT      NOT NULL AUTO_INCREMENT,
+    clearance_id BIGINT      NOT NULL COMMENT '所属清站单',
+    station_id   BIGINT      NOT NULL COMMENT '接收站',
+    seq          INT         NOT NULL COMMENT '选择顺序（从 1 开始）',
+    created_at   DATETIME    NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_clearance_receiver (clearance_id, station_id),
+    KEY idx_receiver_clearance (clearance_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '清站单接收站';
+
+-- ---------------------------------------------------------------------------
+-- 清站车辆明细（每辆车一行，是「绝不半迁移」的落点账本）
+--   item_status：
+--     PLANNED    已排好计划去向，等待执行
+--     UNPLACED   暂时无处安置（接收能力不足），允许保存待执行
+--     MIGRATED   已成功迁出（actual_* 记录真实落点，只成功一次）
+--     BLOCKED    执行受阻（车被借走/目标桩被占/接收站停用…），保留在单内，不回滚已迁出的车
+--   车辆类型 bike_kind：NORMAL 普通车 / FAULT 故障车（维修中，或挂未完成工单）
+-- ---------------------------------------------------------------------------
+CREATE TABLE clearance_item (
+    id                 BIGINT       NOT NULL AUTO_INCREMENT,
+    clearance_id       BIGINT       NOT NULL COMMENT '所属清站单',
+    bike_id            BIGINT       NOT NULL COMMENT '待迁车辆',
+    bike_kind          VARCHAR(16)  NOT NULL COMMENT 'NORMAL 普通车 / FAULT 故障车',
+    item_status        VARCHAR(16)  NOT NULL COMMENT 'PLANNED / UNPLACED / MIGRATED / BLOCKED',
+    plan_station_id    BIGINT       NULL COMMENT '计划接收站（无处安置为 NULL）',
+    plan_pile_id       BIGINT       NULL COMMENT '计划桩位（维修区车辆与无处安置为 NULL）',
+    actual_station_id  BIGINT       NULL COMMENT '实际迁入站',
+    actual_pile_id     BIGINT       NULL COMMENT '实际占用桩位',
+    fail_reason        VARCHAR(255) NULL COMMENT '受阻原因 / 无处安置说明',
+    migrated_at        DATETIME     NULL COMMENT '迁出成功时间',
+    created_at         DATETIME     NOT NULL,
+    updated_at         DATETIME     NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_clearance_bike (clearance_id, bike_id),
+    KEY idx_clearance_item_status (clearance_id, item_status),
+    KEY idx_clearance_item_bike (bike_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '清站车辆明细';
+
 
 -- ===========================================================================
 -- 种子数据
@@ -188,6 +276,8 @@ INSERT INTO station (id, code, name, district, capacity, status, longitude, lati
 
 -- ---- 桩位 -----------------------------------------------------------------
 -- 106 号桩位停用 → 触发「停用桩位不能借车/还车/调拨」。
+-- 123 号（S001 / P7）放模块五的故障车 BK-1010：清 S001 时它按「故障车优先」
+-- 必须送到具备在岗维修工且没有未完成工单冲突的站点（初始数据里只有 S003）。
 INSERT INTO pile (id, station_id, pile_no, status, created_at) VALUES
 (101, 1, 'P1', 'OCCUPIED', '2026-07-01 08:00:00'),
 (102, 1, 'P2', 'OCCUPIED', '2026-07-01 08:00:00'),
@@ -195,6 +285,7 @@ INSERT INTO pile (id, station_id, pile_no, status, created_at) VALUES
 (104, 1, 'P4', 'IDLE',     '2026-07-01 08:00:00'),
 (105, 1, 'P5', 'IDLE',     '2026-07-01 08:00:00'),
 (106, 1, 'P6', 'DISABLED', '2026-07-01 08:00:00'),
+(123, 1, 'P7', 'OCCUPIED', '2026-07-01 08:00:00'),
 (107, 2, 'P1', 'OCCUPIED', '2026-07-01 08:00:00'),
 (108, 2, 'P2', 'OCCUPIED', '2026-07-01 08:00:00'),
 (109, 2, 'P3', 'IDLE',     '2026-07-01 08:00:00'),
@@ -213,8 +304,10 @@ INSERT INTO pile (id, station_id, pile_no, status, created_at) VALUES
 (122, 5, 'P4', 'IDLE',     '2026-07-01 08:00:00');
 
 -- ---- 车辆 -----------------------------------------------------------------
--- 在桩 9 辆（其中 1007 停在已停用的 S004、1008/1009 停满 S005）
--- 骑行中 2 辆（2001/2002，各有一张在途单）
+-- 在桩 10 辆（其中 1007 停在已停用的 S004、1008/1009 停满 S005、
+--   1010 是停在 S001 的故障车，挂着一张未派单工单 → 模块五「故障车优先」样本）
+-- 骑行中 2 辆（2001/2002，各有一张在途单；2002 的在途单从 S001 借走
+--   → 清 S001 时「源站存在在途租借」无法立刻完成，得等它还到别的站）
 -- 维修中 1 辆（3001，挂 S003 但不占桩）
 -- 报废 1 辆（4001，终态，无站点无桩位）
 INSERT INTO bike (id, code, model, status, station_id, pile_id, total_rides, scrap_reason, created_at, updated_at) VALUES
@@ -227,9 +320,10 @@ INSERT INTO bike (id, code, model, status, station_id, pile_id, total_rides, scr
 (1007, 'BK-1007', '美团小黄车',  'PILE',     4, 116,  19, NULL, '2026-06-03 08:00:00', '2026-09-20 18:00:00'),
 (1008, 'BK-1008', '摩拜经典款',  'PILE',     5, 119,  26, NULL, '2026-06-04 08:00:00', '2026-09-20 18:00:00'),
 (1009, 'BK-1009', '摩拜经典款',  'PILE',     5, 120,  31, NULL, '2026-06-04 08:00:00', '2026-09-20 18:00:00'),
+(1010, 'BK-1010', '青桔轻骑款',  'PILE',     1, 123,   8, NULL, '2026-06-07 08:00:00', '2026-09-22 09:30:00'),
 (2001, 'BK-2001', '青桔经典款',  'RIDING',   NULL, NULL, 64, NULL, '2026-06-05 08:00:00', '2026-09-21 19:00:00'),
 (2002, 'BK-2002', '哈啰电助力',  'RIDING',   NULL, NULL, 47, NULL, '2026-06-05 08:00:00', '2026-09-21 20:30:00'),
-(3001, 'BK-3001', '美团小黄车',  'REPAIR',   3, NULL,   58, NULL, '2026-06-06 08:00:00', '2026-09-18 15:10:00'),
+(3001, 'BK-3001', '美团小黄车',  'REPAIR',   3, NULL,  58, NULL, '2026-06-06 08:00:00', '2026-09-18 15:10:00'),
 (4001, 'BK-4001', '摩拜经典款',  'SCRAPPED', NULL, NULL, 132, '车架断裂，判定报废', '2026-05-20 08:00:00', '2026-08-15 10:00:00');
 
 -- ---- 租借订单 -------------------------------------------------------------
@@ -248,15 +342,21 @@ INSERT INTO rental (id, order_no, user_id, bike_id, start_station_id, start_pile
 
 -- ---- 维修工 ---------------------------------------------------------------
 -- 3 号休息中 → 触发「休息的维修工不能派单」。
-INSERT INTO worker (id, name, phone, skill, status) VALUES
-(1, '张师傅', '13800001001', '车锁与传动', 'ON_DUTY'),
-(2, '李师傅', '13800001002', '电控与电池', 'ON_DUTY'),
-(3, '王师傅', '13800001003', '轮胎与刹车', 'OFF_DUTY');
+-- station_id 是驻站（模块五应急清站用）：
+--   1 号驻 S001、在岗，但名下有 1 号未完成派单 → S001 不算「无工单冲突」，接不了故障车；
+--   2 号驻 S003、在岗、名下没有未完工工单 → S003 具备故障车接收能力；
+--   3 号驻 S002 但休息中 → S002 没有在岗维修工，接不了故障车（只能接普通车）。
+INSERT INTO worker (id, name, phone, skill, status, station_id) VALUES
+(1, '张师傅', '13800001001', '车锁与传动', 'ON_DUTY',  1),
+(2, '李师傅', '13800001002', '电控与电池', 'ON_DUTY',  3),
+(3, '王师傅', '13800001003', '轮胎与刹车', 'OFF_DUTY', 2);
 
 -- ---- 运维工单 -------------------------------------------------------------
 -- 1 号已派单给张师傅 09:00~11:00 → 触发「同维修工时段不重叠」
 -- 2 号待派单 → 可走通派单→修复→关闭
 -- 3 号已修复 / 4 号已关闭 → 已完成的工单不再占用维修工时段的样本
+-- 5 号是 BK-1010 的未派单故障（REPORTED）→ 模块五里它被认定为故障车，
+--   清 S001 时必须优先送到「有在岗维修工且没有未完成工单冲突」的站点
 INSERT INTO work_order (id, order_no, bike_id, fault_type, level, status, worker_id,
                         plan_start, plan_end, report_time, assign_time, fix_time, fix_note) VALUES
 (1, 'WO20260901001', 2001, '智能锁无法上锁', 'HIGH', 'ASSIGNED', 1,
@@ -266,4 +366,6 @@ INSERT INTO work_order (id, order_no, bike_id, fault_type, level, status, worker
 (3, 'WO20260901003', 3001, '车架焊点开裂',   'HIGH', 'FIXED',    2,
     '2026-09-18 14:00:00', '2026-09-18 15:30:00', '2026-09-17 09:00:00', '2026-09-17 10:00:00', '2026-09-18 15:10:00', '补焊并做防锈处理'),
 (4, 'WO20260901004', 1009, '脚踏板松动',     'LOW',  'CLOSED',   1,
-    '2026-09-05 09:00:00', '2026-09-05 10:00:00', '2026-09-04 16:00:00', '2026-09-04 16:30:00', '2026-09-05 09:50:00', '紧固并更换销钉');
+    '2026-09-05 09:00:00', '2026-09-05 10:00:00', '2026-09-04 16:00:00', '2026-09-04 16:30:00', '2026-09-05 09:50:00', '紧固并更换销钉'),
+(5, 'WO20260922005', 1010, '车把转向卡滞',   'MID',  'REPORTED', NULL,
+    NULL, NULL, '2026-09-22 09:30:00', NULL, NULL, NULL);

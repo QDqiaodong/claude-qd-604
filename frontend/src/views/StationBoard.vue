@@ -53,6 +53,31 @@
           </span>
         </div>
 
+        <div v-if="st.activeClearance || st.lastClearance" class="clearance-row">
+          <el-tag
+            v-if="st.activeClearance"
+            size="small"
+            :type="st.activeClearance.blockedCount > 0 ? 'danger' : 'warning'"
+            effect="dark"
+            class="clear-tag"
+            @click="goClearance(st.activeClearance.clearanceId)"
+          >
+            🚚 正在清站 {{ st.activeClearance.migratedCount }}/{{ st.activeClearance.totalCount }}
+            <template v-if="st.activeClearance.blockedCount > 0"> · 受阻 {{ st.activeClearance.blockedCount }}</template>
+            <span class="clear-link">查看</span>
+          </el-tag>
+          <el-tag
+            v-else-if="st.lastClearance && st.status === 'CLOSED'"
+            size="small"
+            type="success"
+            effect="plain"
+            class="clear-tag"
+            @click="goClearance(st.lastClearance.clearanceId)"
+          >
+            ✅ 清站完成（{{ st.lastClearance.orderNo }}）<span class="clear-link">查看</span>
+          </el-tag>
+        </div>
+
         <div class="cap-bar">
           <div class="cap-fill" :style="{ width: capPercent(st) + '%' }"></div>
         </div>
@@ -149,11 +174,12 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { stationApi } from '../api'
 
 const route = useRoute()
+const nav = useRouter()
 const loading = ref(false)
 const keyword = ref('')
 const stations = ref([])
@@ -189,6 +215,11 @@ const otherPiles = computed(() => {
 function capPercent(st) {
   if (!st.capacity) return 0
   return Math.min(100, Math.round((st.bikeCount / st.capacity) * 100))
+}
+
+/** 跳到应急清站模块并打开对应清站单 */
+function goClearance(id) {
+  nav.push({ path: '/clearances', query: { id: String(id) } })
 }
 
 async function load() {
@@ -529,6 +560,21 @@ onMounted(load)
 .st-cap em {
   font-style: normal;
   color: var(--el-color-primary);
+}
+
+.clearance-row {
+  margin-top: 8px;
+  display: flex;
+}
+
+.clear-tag {
+  cursor: pointer;
+}
+
+.clear-link {
+  text-decoration: underline;
+  margin-left: 4px;
+  opacity: 0.85;
 }
 
 .cap-bar {

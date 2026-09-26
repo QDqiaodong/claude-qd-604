@@ -34,6 +34,14 @@ public class Worker {
     @Column(name = "status", nullable = false, length = 16)
     private String status;
 
+    /**
+     * 驻站站点（可为 null = 无固定驻站）。
+     * 应急清站据此判断哪些「运营中」站点具备接收故障车的能力：
+     * 站点下至少有一名在岗（ON_DUTY）且名下没有未完成工单的维修工。
+     */
+    @Column(name = "station_id")
+    private Long stationId;
+
     public Long getId() {
         return id;
     }
@@ -72,5 +80,13 @@ public class Worker {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public Long getStationId() {
+        return stationId;
+    }
+
+    public void setStationId(Long stationId) {
+        this.stationId = stationId;
     }
 }

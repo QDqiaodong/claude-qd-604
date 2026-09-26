@@ -34,6 +34,18 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
 
     List<Bike> findByCodeContainingOrderByIdAsc(String keyword);
 
+    /** 某一批 id 对应的车辆（清站单按明细取车用） */
+    List<Bike> findByIdInOrderByIdAsc(List<Long> ids);
+
+    /**
+     * 【悲观锁】锁住某站点下全部车辆行（应急清站执行时做容量计数与完成闸门用）。
+     * 在持有站点行锁的前提下再锁这些车，读到的一定是最新已提交版本，
+     * 不会被并发还车/调拨在「判断容量」与「写入」之间插队。
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select b from Bike b where b.stationId = :stationId")
+    List<Bike> findByStationIdForUpdate(@Param("stationId") Long stationId);
+
     /**
      * 【悲观锁】按主键锁 bike 表的这一行（SELECT ... FOR UPDATE）。
      *

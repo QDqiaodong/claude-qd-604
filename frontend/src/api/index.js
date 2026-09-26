@@ -63,4 +63,17 @@ export const workOrderApi = {
   close: (id) => http.post(`/work-orders/${id}/close`)
 }
 
+export const clearanceApi = {
+  list: (params) => http.get('/clearances', { params }),
+  detail: (id) => http.get(`/clearances/${id}`),
+  preview: (sourceStationId, receiverStationIds) =>
+    http.post('/clearances/preview', { sourceStationId, receiverStationIds }),
+  create: (sourceStationId, receiverStationIds) =>
+    http.post('/clearances', { sourceStationId, receiverStationIds }),
+  adjust: (id, itemId, payload) =>
+    http.post(`/clearances/${id}/items/${itemId}/adjust`, payload),
+  execute: (id) => http.post(`/clearances/${id}/execute`),
+  cancel: (id) => http.post(`/clearances/${id}/cancel`)
+}
+
 export default http

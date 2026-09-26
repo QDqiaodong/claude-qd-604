@@ -15,11 +15,13 @@ import org.springframework.transaction.annotation.Transactional;
 import com.bike.station.common.BizException;
 import com.bike.station.domain.Bike;
 import com.bike.station.domain.BikeDict;
+import com.bike.station.domain.ClearanceDict;
 import com.bike.station.domain.Pile;
 import com.bike.station.domain.Station;
 import com.bike.station.dto.BikeDtos;
 import com.bike.station.dto.Views;
 import com.bike.station.repository.BikeRepository;
+import com.bike.station.repository.ClearanceOrderRepository;
 import com.bike.station.repository.PileRepository;
 import com.bike.station.repository.RentalRepository;
 import com.bike.station.repository.StationRepository;
@@ -43,6 +45,7 @@ public class BikeService {
     private final StationRepository stationRepository;
     private final RentalRepository rentalRepository;
     private final WorkOrderRepository workOrderRepository;
+    private final ClearanceOrderRepository clearanceOrderRepository;
     private final SlotService slotService;
 
     public BikeService(BikeRepository bikeRepository,
@@ -50,12 +53,14 @@ public class BikeService {
                        StationRepository stationRepository,
                        RentalRepository rentalRepository,
                        WorkOrderRepository workOrderRepository,
+                       ClearanceOrderRepository clearanceOrderRepository,
                        SlotService slotService) {
         this.bikeRepository = bikeRepository;
         this.pileRepository = pileRepository;
         this.stationRepository = stationRepository;
         this.rentalRepository = rentalRepository;
         this.workOrderRepository = workOrderRepository;
+        this.clearanceOrderRepository = clearanceOrderRepository;
         this.slotService = slotService;
     }
 
@@ -107,7 +112,9 @@ public class BikeService {
                 rentalRepository.countByStatus(BikeDict.RENTAL_RIDING),
                 rentalRepository.countByStatus(BikeDict.RENTAL_SETTLED),
                 workOrderRepository.countByStatus(BikeDict.ORDER_REPORTED),
-                workOrderRepository.countByStatus(BikeDict.ORDER_ASSIGNED));
+                workOrderRepository.countByStatus(BikeDict.ORDER_ASSIGNED),
+                clearanceOrderRepository.countByStatusIn(ClearanceDict.ORDER_ACTIVE),
+                clearanceOrderRepository.countByStatusIn(List.of(ClearanceDict.ORDER_PARTIALLY_BLOCKED)));
     }
 
     // ------------------------------------------------------------------

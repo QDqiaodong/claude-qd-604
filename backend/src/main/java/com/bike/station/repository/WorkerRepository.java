@@ -18,6 +18,12 @@ public interface WorkerRepository extends JpaRepository<Worker, Long> {
 
     List<Worker> findByStatusOrderByIdAsc(String status);
 
+    /** 某站点的全部驻站维修工 */
+    List<Worker> findByStationIdOrderByIdAsc(Long stationId);
+
+    /** 某站点在岗的驻站维修工 */
+    List<Worker> findByStationIdAndStatusOrderByIdAsc(Long stationId, String status);
+
     /**
      * 【悲观锁】按主键锁 worker 表的这一行（SELECT ... FOR UPDATE）。
      *

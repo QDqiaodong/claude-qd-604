@@ -26,6 +26,23 @@ public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long> {
 
     long countByStatus(String status);
 
+    /** 某维修工名下未完工工单数（应急清站：判定站点「有没有未完成工单冲突」） */
+    long countByWorkerIdAndStatusIn(Long workerId, Collection<String> statuses);
+
+    /**
+     * 某一批车辆当前挂着未完工工单（REPORTED / ASSIGNED）的车辆 id。
+     * 应急清站据此把车分成「故障车 / 普通车」。
+     */
+    @Query("select distinct o.bikeId from WorkOrder o where o.bikeId in :bikeIds and o.status in :statuses")
+    List<Long> findFaultBikeIds(@Param("bikeIds") Collection<Long> bikeIds,
+                                @Param("statuses") Collection<String> statuses);
+
+    /**
+     * 某一批车辆当前仍未关闭（未到 CLOSED）工单的车辆 id —— 清站完成闸门用。
+     */
+    @Query("select distinct o.bikeId from WorkOrder o where o.bikeId in :bikeIds and o.status <> 'CLOSED'")
+    List<Long> findOpenBikeIds(@Param("bikeIds") Collection<Long> bikeIds);
+
     /**
      * 【悲观锁】按主键锁 work_order 表的这一行（SELECT ... FOR UPDATE）。
      *

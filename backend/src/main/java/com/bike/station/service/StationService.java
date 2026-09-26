@@ -16,11 +16,14 @@ import org.springframework.transaction.annotation.Transactional;
 import com.bike.station.common.BizException;
 import com.bike.station.domain.Bike;
 import com.bike.station.domain.BikeDict;
+import com.bike.station.domain.ClearanceDict;
+import com.bike.station.domain.ClearanceOrder;
 import com.bike.station.domain.Pile;
 import com.bike.station.domain.Station;
 import com.bike.station.dto.StationDtos;
 import com.bike.station.dto.Views;
 import com.bike.station.repository.BikeRepository;
+import com.bike.station.repository.ClearanceOrderRepository;
 import com.bike.station.repository.PileRepository;
 import com.bike.station.repository.StationRepository;
 
@@ -40,15 +43,18 @@ public class StationService {
     private final StationRepository stationRepository;
     private final PileRepository pileRepository;
     private final BikeRepository bikeRepository;
+    private final ClearanceOrderRepository clearanceOrderRepository;
     private final SlotService slotService;
 
     public StationService(StationRepository stationRepository,
                           PileRepository pileRepository,
                           BikeRepository bikeRepository,
+                          ClearanceOrderRepository clearanceOrderRepository,
                           SlotService slotService) {
         this.stationRepository = stationRepository;
         this.pileRepository = pileRepository;
         this.bikeRepository = bikeRepository;
+        this.clearanceOrderRepository = clearanceOrderRepository;
         this.slotService = slotService;
     }
 
@@ -85,6 +91,17 @@ public class StationService {
         Map<Long, List<Pile>> pilesByStation = pileRepository.findAll().stream()
                 .collect(Collectors.groupingBy(Pile::getStationId));
 
+        // 清站角标：进行中的单显示「正在清站 · 受阻 N」；最近完成的单显示完成结果
+        Map<Long, Views.ClearanceBadge> activeBadge = new HashMap<>();
+        Map<Long, Views.ClearanceBadge> lastBadge = new HashMap<>();
+        for (ClearanceOrder co : clearanceOrderRepository.findAllByOrderByIdDesc()) {
+            if (ClearanceDict.isActive(co.getStatus())) {
+                activeBadge.putIfAbsent(co.getSourceStationId(), badgeOf(co));
+            } else if (ClearanceDict.ORDER_COMPLETED.equals(co.getStatus())) {
+                lastBadge.putIfAbsent(co.getSourceStationId(), badgeOf(co));
+            }
+        }
+
         List<Views.StationCard> cards = new ArrayList<>(stations.size());
         for (Station s : stations) {
             List<Pile> piles = pilesByStation.getOrDefault(s.getId(), List.of()).stream()
@@ -116,9 +133,23 @@ public class StationService {
                     BikeDict.stationStatusName(s.getStatus()),
                     bikeCountByStation.getOrDefault(s.getId(), 0L),
                     free,
-                    pileViews));
+                    pileViews,
+                    activeBadge.get(s.getId()),
+                    lastBadge.get(s.getId())));
         }
         return cards;
+    }
+
+    private Views.ClearanceBadge badgeOf(ClearanceOrder co) {
+        return new Views.ClearanceBadge(
+                co.getId(),
+                co.getOrderNo(),
+                co.getStatus(),
+                ClearanceDict.orderStatusName(co.getStatus()),
+                co.getMigratedCount(),
+                co.getTotalCount(),
+                co.getBlockedCount(),
+                co.getCompletedTime());
     }
 
     public List<Views.PileView> piles(Long stationId) {
